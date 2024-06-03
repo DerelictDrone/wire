@@ -41,6 +41,19 @@ function table.Compact(tbl, cb, n) -- luacheck: ignore
 	end
 end
 
+-- Removes `value` from `tbl` by shifting last element of `tbl` to its place.
+-- Returns index of `value` if it was removed, nil otherwise.
+function table.RemoveFastByValue(tbl, value)
+    for i, v in ipairs(tbl) do
+        if v == value then
+            tbl[i] = tbl[#tbl]
+            tbl[#tbl] = nil
+
+            return i
+        end
+    end
+end
+
 function string.GetNormalizedFilepath( path ) -- luacheck: ignore
 	local null = string.find(path, "\x00", 1, true)
 	if null then path = string.sub(path, 1, null-1) end
@@ -420,13 +433,14 @@ end
 -- Works for every entity that has wire in-/output.
 -- Very important and useful for checks!
 function WireLib.HasPorts(ent)
-	if (ent.IsWire) then return true end
-	if (ent.Base == "base_wire_entity") then return true end
+	local entTbl = ent:GetTable()
+	if entTbl.IsWire then return true end
+	if entTbl.Base == "base_wire_entity" then return true end
 
 	-- Checks if the entity is in the list, it checks if the entity has self.in-/outputs too.
 	local In, Out = WireLib.GetPorts(ent)
-	if (In and (ent.Inputs or CLIENT)) then return true end
-	if (Out and (ent.Outputs or CLIENT)) then return true end
+	if In and (entTbl.Inputs or CLIENT) then return true end
+	if Out and (entTbl.Outputs or CLIENT) then return true end
 
 	return false
 end
@@ -1212,6 +1226,27 @@ hook.Add("PlayerDisconnected", "WireLib_PlayerDisconnect", function(ply)
     tbl[ply] = nil
   end
 end)
+
+
+local EntityMeta   = FindMetaTable("Entity") -- direct references are faster
+local GetPos       = EntityMeta.GetPos
+local GetAngles    = EntityMeta.GetAngles
+
+function WireLib.GetComputeIfEntityTransformDirty(compute)
+	return setmetatable({}, {
+		__index=function(t,ent) local r={Vector(math.huge), Angle()} t[ent]=r return r end,
+		__call=function(t,ent)
+			local data = t[ent]
+			local pos, ang = GetPos(ent), GetAngles(ent)
+			if pos~=data[1] or ang~=data[2] then
+				data[1] = pos
+				data[2] = ang
+				data[3] = compute(ent)
+			end
+			return data[3]
+		end
+	})
+end
 
 -- Notify --
 

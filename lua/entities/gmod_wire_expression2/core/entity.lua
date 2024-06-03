@@ -136,9 +136,9 @@ e2function number entity:setEditProperty(string key, string value)
 	if not IsValid(this) then return self:throw("Invalid entity!", 0) end
 	if not isOwner(self, this) then return self:throw("You do not own this entity!", 0) end
 	if not this.Editable then return self:throw("Tried to edit non-editable entity!", 0) end
-
-
 	if not canProperty(self.player, this, "editentity") then return self:throw("Gamemode disallowed editing this entity!", 0) end
+
+	key = key:lower()
 	local edit = this:GetEditingData()[key]
 	if not edit then return self:throw("Property '" .. key .. "' does not exist on entity!", 0) end
 	if not canEditVariable(this, self.player, key, value, edit) then return self:throw("Server disallowed editing this property!", 0) end
@@ -150,6 +150,7 @@ e2function string entity:getEditProperty(string key)
 	if not IsValid(this) then return self:throw("Invalid entity!", "") end
 	if not this.Editable then return self:throw("Tried to access non-editable entity!", "") end
 
+	-- GetNetworkKeyValue lowercases the key for us
 	return tostring(this:GetNetworkKeyValue(key) or "")
 end
 
@@ -526,16 +527,8 @@ end
 --- Sets <this>'s skin number.
 e2function void entity:setSkin(skinIndex)
 	if not IsValid(this) then return self:throw("Invalid entity!", nil) end
-	if this:IsPlayer() then return self:throw("You cannot set the skin of a player!", nil) end
-
-	-- This should probably return a number for if it successfully set the skin.
-	if
-		this:SkinCount() > 0
-		and skinIndex < this:SkinCount()
-		and canProperty(self.player, this, "skin")
-	then
-		this:SetSkin(skinIndex)
-	end
+	if not isOwner(self, this) then return self:throw("You do not own this entity!", nil) end
+	this:SetSkin(skinIndex)
 end
 
 --- Gets <this>'s number of skins.

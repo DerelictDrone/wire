@@ -1,6 +1,6 @@
-AddCSLuaFile('cl_init.lua')
-AddCSLuaFile('shared.lua')
-include('shared.lua')
+AddCSLuaFile("cl_init.lua")
+AddCSLuaFile("shared.lua")
+include("shared.lua")
 
 DEFINE_BASECLASS("base_wire_entity")
 
@@ -40,22 +40,26 @@ end
 local fixDefault = E2Lib.fixDefault
 
 function ENT:UpdateOverlay(clear)
+	local selfTbl = self:GetTable()
+
 	if clear then
-		self:SetOverlayData( {
-								txt = "(none)",
-								error = self.error,
-								prfbench = 0,
-								prfcount = 0,
-								timebench = 0
-							})
+		self:SetOverlayData({
+			txt = "(none)",
+			error = selfTbl.error,
+			prfbench = 0,
+			prfcount = 0,
+			timebench = 0
+		})
 	else
-		self:SetOverlayData( {
-								txt = self.name, -- name/error
-								error = self.error, -- error bool
-								prfbench = self.context.prfbench,
-								prfcount = self.context.prfcount,
-								timebench = self.context.timebench
-							})
+		local context = selfTbl.context
+
+		self:SetOverlayData({
+			txt = selfTbl.name, -- name/error
+			error = selfTbl.error, -- error bool
+			prfbench = context.prfbench,
+			prfcount = context.prfcount,
+			timebench = context.timebench
+		})
 	end
 end
 
@@ -94,87 +98,93 @@ function ENT:Destruct()
 	end
 end
 
-function ENT:UpdatePerf()
-	if not self.context then return end
-	if self.error then return end
+function ENT:UpdatePerf(selfTbl)
+	selfTbl = selfTbl or self:GetTable()
+	local context = selfTbl.context
+	if not context then return end
+	if selfTbl.error then return end
 
-	self.context.prfbench = self.context.prfbench * 0.95 + self.context.prf * 0.05
-	self.context.prfcount = self.context.prfcount + self.context.prf - e2_softquota
-	self.context.timebench = self.context.timebench * 0.95 + self.context.time * 0.05 -- Average it over the last 20 ticks
+	context.prfbench = context.prfbench * 0.95 + context.prf * 0.05
+	context.prfcount = context.prfcount + context.prf - e2_softquota
+	context.timebench = context.timebench * 0.95 + context.time * 0.05 -- Average it over the last 20 ticks
 
-	if self.context.prfcount < 0 then self.context.prfcount = 0 end
+	if context.prfcount < 0 then context.prfcount = 0 end
 
 	self:UpdateOverlay()
 
-	self.context.prf = 0
-	self.context.time = 0
-
+	context.prf = 0
+	context.time = 0
 end
 
 function ENT:Execute()
-	if self.error or not self.context or self.context.resetting then return end
+	local selfTbl = self:GetTable()
+	local context = selfTbl.context
+	if not context or selfTbl.error or context.resetting then return end
 
-	self:PCallHook('preexecute')
+	self:PCallHook("preexecute")
 
-	self.context.stackdepth = self.context.stackdepth + 1
+	context.stackdepth = context.stackdepth + 1
 
-	if self.context.stackdepth >= 150 then
-		self:Error("Expression 2 (" .. self.name .. "): stack quota exceeded", "stack quota exceeded")
+	if context.stackdepth >= 150 then
+		self:Error("Expression 2 (" .. selfTbl.name .. "): stack quota exceeded", "stack quota exceeded")
 	end
 
 	local bench = SysTime()
 
-	local ok, msg = pcall(self.script, self.context)
+	local ok, msg = pcall(selfTbl.script, context)
 
 	if not ok then
 		local _catchable, msg, trace = E2Lib.unpackException(msg)
 
 		if msg == "exit" then
-			self:UpdatePerf()
+			self:UpdatePerf(selfTbl)
 		elseif msg == "perf" then
-			local trace = self.context.trace
-			self:UpdatePerf()
-			self:Error("Expression 2 (" .. self.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "tick quota exceeded")
+			local trace = context.trace
+			self:UpdatePerf(selfTbl)
+			self:Error("Expression 2 (" .. selfTbl.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "tick quota exceeded")
 		elseif trace then
-			self:Error("Expression 2 (" .. self.name .. "): Runtime error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
+			self:Error("Expression 2 (" .. selfTbl.name .. "): Runtime error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
 		else
-			local trace = self.context.trace
-			self:Error("Expression 2 (" .. self.name .. "): Internal error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
+			local trace = context.trace
+			self:Error("Expression 2 (" .. selfTbl.name .. "): Internal error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
 		end
 	end
 
-	self.context.time = self.context.time + (SysTime() - bench)
-	self.context.stackdepth = self.context.stackdepth - 1
+	context.time = context.time + (SysTime() - bench)
+	context.stackdepth = context.stackdepth - 1
 
-	local forceTriggerOutputs = self.first or self.duped
-	self.first = false -- if hooks call execute
-	self.duped = false -- if hooks call execute
-	self.context.triggerinput = nil -- if hooks call execute
+	local forceTriggerOutputs = selfTbl.first or selfTbl.duped
+	selfTbl.first = false -- if hooks call execute
+	selfTbl.duped = false -- if hooks call execute
+	context.triggerinput = nil -- if hooks call execute
 
-	self:PCallHook('postexecute')
+	self:PCallHook("postexecute")
 
 	self:TriggerOutputs(forceTriggerOutputs)
 
-	for k, v in pairs(self.inports[3]) do
-		if self.GlobalScope[k] then
-			if wire_expression_types[self.Inputs[k].Type][3] then
-				self.GlobalScope[k] = wire_expression_types[self.Inputs[k].Type][3](self.context, self.Inputs[k].Value)
+	local globalScope = selfTbl.GlobalScope
+	local inputs = selfTbl.Inputs
+
+	for k, v in pairs(selfTbl.inports[3]) do
+		if globalScope[k] then
+			if wire_expression_types[inputs[k].Type][3] then
+				globalScope[k] = wire_expression_types[inputs[k].Type][3](context, inputs[k].Value)
 			else
-				self.GlobalScope[k] = self.Inputs[k].Value
+				globalScope[k] = inputs[k].Value
 			end
 		end
 	end
 
-	self.GlobalScope.vclk = {}
-	if not self.directives.strict then
-		for k, var in pairs(self.globvars_mut) do
-			self.GlobalScope[k] = fixDefault(wire_expression_types2[var.type][2])
+	globalScope.vclk = {}
+	if not selfTbl.directives.strict then
+		for k, var in pairs(selfTbl.globvars_mut) do
+			globalScope[k] = fixDefault(wire_expression_types2[var.type][2])
 		end
 	end
 
-	if self.context.prfcount + self.context.prf - e2_softquota > e2_hardquota then
-		local trace = self.context.trace
-		self:Error("Expression 2 (" .. self.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "hard quota exceeded")
+	if context.prfcount + context.prf - e2_softquota > e2_hardquota then
+		local trace = context.trace
+		self:Error("Expression 2 (" .. selfTbl.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "hard quota exceeded")
 	end
 
 	if self.error then
@@ -186,63 +196,67 @@ end
 ---@param args table?
 function ENT:ExecuteEvent(evt, args)
 	assert(evt, "Expected event name, got nil (or false)")
-	if self.error or not self.context or self.context.resetting then return end
 
-	local handlers = self.registered_events[evt]
+	local selfTbl = self:GetTable()
+	local context = selfTbl.context
+	if not context or selfTbl.error or selfTbl.context.resetting then return end
+
+	local handlers = selfTbl.registered_events[evt]
 	if not handlers then return end
 
 	self:PCallHook("preexecute")
 
 	for name, handler in pairs(handlers) do
-		self.context.stackdepth = self.context.stackdepth + 1
+		context.stackdepth = context.stackdepth + 1
 
-		if self.context.stackdepth >= 150 then
-			self:Error("Expression 2 (" .. self.name .. "): stack quota exceeded", "stack quota exceeded")
+		if context.stackdepth >= 150 then
+			self:Error("Expression 2 (" .. selfTbl.name .. "): stack quota exceeded", "stack quota exceeded")
 		end
 
 		local bench = SysTime()
-		local ok, msg = pcall(handler, self.context, args)
+		local ok, msg = pcall(handler, context, args)
 
 		if not ok then
 			local _catchable, msg, trace = E2Lib.unpackException(msg)
 
 			if msg == "exit" then
-				self:UpdatePerf()
+				self:UpdatePerf(selfTbl)
 			elseif msg == "perf" then
-				local trace = self.context.trace
-				self:UpdatePerf()
-				self:Error("Expression 2 (" .. self.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "tick quota exceeded")
+				local trace = context.trace
+				self:UpdatePerf(selfTbl)
+				self:Error("Expression 2 (" .. selfTbl.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "tick quota exceeded")
 			elseif trace then
-				self:Error("Expression 2 (" .. self.name .. "): Runtime error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
+				self:Error("Expression 2 (" .. selfTbl.name .. "): Runtime error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
 			else
-				local trace = self.context.trace
-				self:Error("Expression 2 (" .. self.name .. "): Internal error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
+				local trace = context.trace
+				self:Error("Expression 2 (" .. selfTbl.name .. "): Internal error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
 			end
 		end
 
-		self.context.time = self.context.time + (SysTime() - bench)
-		self.context.stackdepth = self.context.stackdepth - 1
+		context.time = context.time + (SysTime() - bench)
+		context.stackdepth = context.stackdepth - 1
 	end
 
-
-	self.context.triggerinput = nil -- if hooks call execute
+	context.triggerinput = nil -- if hooks call execute
 
 	self:PCallHook("postexecute")
 	self:TriggerOutputs()
 
-	self.GlobalScope.vclk = {}
-	if not self.directives.strict then
-		for k, var in pairs(self.globvars_mut) do
-			self.GlobalScope[k] = fixDefault(wire_expression_types2[var.type][2])
+	local globalScope = selfTbl.GlobalScope
+	globalScope.vclk = {}
+
+	if not selfTbl.directives.strict then
+		for k, var in pairs(selfTbl.globvars_mut) do
+			globalScope[k] = fixDefault(wire_expression_types2[var.type][2])
 		end
 	end
 
-	if self.context.prfcount + self.context.prf - e2_softquota > e2_hardquota then
-		local trace = self.context.trace
-		self:Error("Expression 2 (" .. self.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "hard quota exceeded")
+	if context.prfcount + context.prf - e2_softquota > e2_hardquota then
+		local trace = context.trace
+		self:Error("Expression 2 (" .. selfTbl.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "hard quota exceeded")
 	end
 
-	if self.error then
+	if selfTbl.error then
 		self:Destruct()
 	end
 end
@@ -251,21 +265,23 @@ function ENT:Think()
 	BaseClass.Think(self)
 	self:NextThink(CurTime() + 0.030303)
 
-	if not self.context then return true end
-	if self.error then return true end
+	local selfTbl = self:GetTable()
+	local context = selfTbl.context
+	if not context then return true end
+	if selfTbl.error then return true end
 
-	self:UpdatePerf()
+	self:UpdatePerf(selfTbl)
 
-	if self.context.prfcount < 0 then self.context.prfcount = 0 end
+	if context.prfcount < 0 then context.prfcount = 0 end
 
 	self:UpdateOverlay()
 
-	self.context.prf = 0
-	self.context.time = 0
+	context.prf = 0
+	context.time = 0
 
-	if e2_timequota > 0 and self.context.timebench > e2_timequota then
-		self:Error("Expression 2 (" .. self.name .. "): time quota exceeded", "time quota exceeded")
-		self:PCallHook('destruct')
+	if e2_timequota > 0 and context.timebench > e2_timequota then
+		self:Error("Expression 2 (" .. selfTbl.name .. "): time quota exceeded", "time quota exceeded")
+		self:PCallHook("destruct")
 	end
 
 	return true
@@ -273,8 +289,9 @@ end
 
 local CallHook = wire_expression2_CallHook
 function ENT:CallHook(hookname, ...)
-	if not self.context then return end
-	return CallHook(hookname, self.context, ...)
+	local context = self.context
+	if not context then return end
+	return CallHook(hookname, context, ...)
 end
 
 function ENT:OnRemove()
@@ -522,10 +539,10 @@ function ENT:Setup(buffer, includes, restore, forcecompile, filepath)
 
 	self:SetOverlayText(self.name)
 
-	local ok, msg = pcall(self.CallHook, self, 'construct')
+	local ok, msg = pcall(self.CallHook, self, "construct")
 	if not ok then
 		Msg("Construct hook(s) failed, executing destruct hooks...\n")
-		local ok2, msg2 = pcall(self.CallHook, self, 'destruct')
+		local ok2, msg2 = pcall(self.CallHook, self, "destruct")
 		if ok2 then
 			self:Error(msg .. "\nDestruct hooks succeeded.")
 		else
@@ -543,12 +560,14 @@ function ENT:Setup(buffer, includes, restore, forcecompile, filepath)
 	end
 
 	-- Register events only after E2 has executed once
-	for evt, _ in pairs(self.registered_events) do
-		if E2Lib.Env.Events[evt].constructor then
-			-- If the event has a constructor to run when the E2 is made and listening to the event.
-			E2Lib.Env.Events[evt].constructor(self.context)
+	if self.registered_events then
+		for evt, _ in pairs(self.registered_events) do
+			if E2Lib.Env.Events[evt].constructor then
+				-- If the event has a constructor to run when the E2 is made and listening to the event.
+				E2Lib.Env.Events[evt].constructor(self.context)
+			end
+			E2Lib.Env.Events[evt].listening[self] = true
 		end
-		E2Lib.Env.Events[evt].listening[self] = true
 	end
 
 	self:NextThink(CurTime())
@@ -590,12 +609,16 @@ function ENT:TriggerInput(key, value)
 end
 
 function ENT:TriggerOutputs(force)
-	for key, t in pairs(self.outports[3]) do
-		if self.GlobalScope.vclk[key] or force then
+	local selfTbl = self:GetTable()
+	local globalScope = selfTbl.GlobalScope
+	local context = selfTbl.context
+
+	for key, t in pairs(selfTbl.outports[3]) do
+		if globalScope.vclk[key] or force then
 			if wire_expression_types2[t][4] then
-				WireLib.TriggerOutput(self, key, wire_expression_types2[t][4](self.context, self.GlobalScope[key]))
+				WireLib.TriggerOutput(self, key, wire_expression_types2[t][4](context, globalScope[key]))
 			else
-				WireLib.TriggerOutput(self, key, self.GlobalScope[key])
+				WireLib.TriggerOutput(self, key, globalScope[key])
 			end
 		end
 	end
@@ -660,7 +683,6 @@ hook.Add("EntityRemoved", "Wire_Expression2_Player_Disconnected", function(ent)
 end)
 
 hook.Add("PlayerAuthed", "Wire_Expression2_Player_Authed", function(ply, sid, uid)
-	local c
 	for _, ent in ipairs(ents.FindByClass("gmod_wire_expression2")) do
 		if (ent.uid == uid) then
 			ent.context.player = ply
